@@ -12,11 +12,18 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 # If the script fails, the most likely reason is that these IDs are different on the live server.
 COURSES_TO_REGISTER = [
     {
+        "name": "KAZ 313",
+        "instance_id": "27724",
+        "components": [
+            {"component_id": "33713", "section_id": "2"}
+        ]
+    },
+    {
         "name": "CSCI 361 (Lec+Lab)",
         "instance_id": "28008",
         "components": [
-            {"component_id": "34172", "section_id": "2"},
-            {"component_id": "34173", "section_id": "2"}
+            {"component_id": "34172", "section_id": "1"},
+            {"component_id": "34173", "section_id": "4"}
         ]
     },
     {
@@ -27,17 +34,25 @@ COURSES_TO_REGISTER = [
         ]
     },
     {
-        "name": "KAZ 313",
-        "instance_id": "27724",
+        "name": "CSCI 341 (Lec Only)",
+        "instance_id": "28004",
         "components": [
-            {"component_id": "33713", "section_id": "2"}
+            {"component_id": "34166", "section_id": "1"}
+        ]
+    },
+    {
+        "name": "CSCI 390 (Lec Only)",
+        "instance_id": "28009",
+        "components": [
+            {"component_id": "34175", "section_id": "1"}
         ]
     }
+    
 ]
 
 # --- 2. YOUR LOGIN CREDENTIALS ---
-USERNAME = "***REMOVED***"
-PASSWORD = "***REMOVED***!"
+USERNAME = ""
+PASSWORD = ""
 USER_ID = "***REMOVED***"
 
 # --- 3. API AND URL CONFIGURATION (FOR LIVE SERVER) ---
@@ -179,7 +194,6 @@ def register_courses(session, csrf_token, courses):
             print(f"   ❌ An error occurred while registering '{course['name']}': {e}")
         finally:
             print("-" * 20)
-            time..sleep(1) # Wait 1s between final registration calls
 
     print(f"\n--- Registration Complete: Successfully registered for {total_success} out of {len(courses)} courses. ---")
 
