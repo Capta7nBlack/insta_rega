@@ -75,15 +75,8 @@ def main():
     csrf_token = get_csrf_token(session)
     if not csrf_token: return
 
-    print("\n--- Processing Shopping Cart ---")
-    successful_courses = add_courses_to_cart(session, csrf_token, COURSES_TO_REGISTER)
-    
-    if not successful_courses:
-        print("\nNo courses were successfully added to the cart. Exiting.")
-        return
-
     print("\n--- Initiating Final Registration (One by One) ---")
-    register_courses(session, csrf_token, successful_courses)
+    register_courses(session, csrf_token, COURSES_TO_REGISTER)
 
 def login(session):
     """Handles the entire login process."""
@@ -125,30 +118,6 @@ def get_csrf_token(session):
     except (requests.exceptions.RequestException, AttributeError) as e:
         print(f"❌ Failed to get or parse the CSRF token: {e}")
         return None
-
-def add_courses_to_cart(session, csrf_token, courses):
-    """Loops through courses and adds them to the shopping cart."""
-    session.headers.update({
-        "X-Requested-With": "XMLHttpRequest", "headerval": csrf_token,
-        "Referer": REGISTRATION_PAGE_URL, "Origin": "https://testregistrar.nu.edu.kz"
-    })
-    
-    successfully_added = []
-    for course in courses:
-        cart_payload = {"method": "shoppingCartAddRemove", "instanceid": course["instance_id"], "action": "1"}
-        print(f"🛒 Adding '{course['name']}' (Instance: {course['instance_id']}) to cart...")
-        try:
-            r = session.post(API_URL, data=cart_payload, verify=False)
-            print(f"   Response: {r.status_code} \"{r.text.strip()}\"")
-            if r.status_code == 200 and ("Adding to Shopping Cart" in r.text or "Already in Shopping Cart" in r.text):
-                print(f"   ✅ Success for '{course['name']}'.")
-                successfully_added.append(course)
-            else:
-                print(f"   ❌ Failed to add '{course['name']}' to cart.")
-        except requests.exceptions.RequestException as e:
-            print(f"   ❌ Request failed for '{course['name']}': {e}")
-        print("-" * 20)
-    return successfully_added
 
 def register_courses(session, csrf_token, courses):
     """
