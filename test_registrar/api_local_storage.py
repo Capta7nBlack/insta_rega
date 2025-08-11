@@ -18,15 +18,7 @@ class LocalStorageAPI:
 
     def get_config(self):
         """Public method to load and return the entire configuration."""
-        return self.__load_json_file(self.config_file)
-
-    def get_validated_session_data(self):
-        """
-        Public method that validates session freshness and returns the data.
-        This is the main entry point for the registrar script.
-        """
-        self.__validate_session_age()
-        return self.__load_json_file(self.session_file)
+        return self._load_json_file(self.config_file)
 
     def save_session_data(self, session_cookies, csrf_token):
         """Public method to write session data to the file."""
@@ -35,7 +27,7 @@ class LocalStorageAPI:
             "cookies": session_cookies,
             "csrf_token": csrf_token
         }
-        self.__save_json_file(self.session_file, session_data)
+        self._save_json_file(self.session_file, session_data)
         print(f"✅ Session data successfully saved.")
 
     def update_config_with_courses(self, new_course_list):
@@ -43,8 +35,20 @@ class LocalStorageAPI:
         print("💾 Updating config.json with new course data...")
         config_data = self.get_config()
         config_data['courses_to_register'] = new_course_list
-        self.__save_json_file(self.config_file, config_data)
+        self._save_json_file(self.config_file, config_data)
         print("✅ config.json successfully updated.")
+
+    def get_session_data(self):
+        """
+        Public method that loads the session data from the file.
+        It no longer validates the age of the file.
+        """
+        print("--- Loading Session Data from File ---")
+        if not os.path.exists(self.session_file):
+            print(f"❌ ABORTING: Session file '{self.session_file}' not found.")
+            print("   Please run to_login.py to create it.")
+            sys.exit(1)
+        return self._load_json_file(self.session_file)
 
     # --- Public Method for Parsing Schedule ---
 
@@ -95,7 +99,7 @@ class LocalStorageAPI:
 
     # --- Private Methods ---
 
-    def __load_json_file(self, filepath):
+    def _load_json_file(self, filepath):
         """Private method to read and parse a JSON file."""
         if not os.path.exists(filepath):
             print(f"❌ ABORTING: Required file not found: '{filepath}'")
@@ -107,7 +111,7 @@ class LocalStorageAPI:
             print(f"❌ ABORTING: Error loading or parsing '{filepath}': {e}")
             sys.exit(1)
 
-    def __save_json_file(self, filepath, data):
+    def _save_json_file(self, filepath, data):
         """Private method to write data to a JSON file."""
         try:
             with open(filepath, 'w') as f:
@@ -115,22 +119,3 @@ class LocalStorageAPI:
         except IOError as e:
             print(f"❌ Failed to write to file '{filepath}': {e}")
             sys.exit(1)
-            
-    def __validate_session_age(self):
-        """Private method to check if the session file is fresh."""
-        print("--- Validating Session Data ---")
-        if not os.path.exists(self.session_file):
-            print(f"❌ ABORTING: Session file '{self.session_file}' not found.")
-            print("   Please run to_login.py to create it.")
-            sys.exit(1)
-
-        file_age_seconds = time.time() - os.path.getmtime(self.session_file)
-        max_age_seconds = self.max_age_minutes * 60
-
-        if file_age_seconds > max_age_seconds:
-            print(f"❌ ABORTING: Session data is stale (created {int(file_age_seconds / 60)} minutes ago).")
-            print(f"   Maximum allowed age is {self.max_age_minutes} minutes.")
-            print("   Please run to_login.py to refresh the session.")
-            sys.exit(1)
-
-        print(f"✅ Session data is fresh (created {int(file_age_seconds)}s ago).")

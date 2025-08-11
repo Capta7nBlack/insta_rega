@@ -1,6 +1,6 @@
-from registrar_api import RegistrarAPI
-from local_storage_api import LocalStorageAPI
 import warnings
+from api_registrar import RegistrarAPI         # UPDATED
+from api_local_storage import LocalStorageAPI # UPDATED
 
 # Suppress InsecureRequestWarning for verify=False
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -12,10 +12,14 @@ def main():
     # 1. Handle local data
     storage = LocalStorageAPI()
     config = storage.get_config()
-    session_data = storage.get_validated_session_data()
+    session_data = storage.get_session_data()
 
-    # 2. Prepare API client with loaded session
+    # 2. Prepare API client and validate session data
     api = RegistrarAPI(session_cookies=session_data.get('cookies'))
+    if not api.is_session_valid():
+        print("\nYour session data is invalid, please refresh it by running to_login.py")
+        return
+
     
     # 3. Register courses
     user_id = config.get('user_info', {}).get('user_id')

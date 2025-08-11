@@ -1,6 +1,6 @@
-from registrar_api import RegistrarAPI
-from local_storage_api import LocalStorageAPI
 import warnings
+from api_registrar import RegistrarAPI
+from api_local_storage import LocalStorageAPI
 
 # Suppress InsecureRequestWarning for verify=False
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')

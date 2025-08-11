@@ -88,6 +88,29 @@ class RegistrarAPI:
         except requests.exceptions.RequestException as e:
             print(f"   ❌ An error occurred while registering '{course_data['name']}': {e}")
 
+    def is_session_valid(self):
+        """
+        Checks if the current session cookies are still valid by making a
+        request to a page that requires authentication.
+        """
+        print("--- Validating session with the server ---")
+        try:
+            # Access a page that is only available when logged in.
+            response = self.session.get(self.REG_PAGE_URL, verify=False, allow_redirects=True)
+            response.raise_for_status()
+            
+            # A valid session should show a "Log out" link. An invalid one might redirect
+            # to the login page, which does not have this link.
+            if "user/logout" in response.text:
+                print("✅ Session is valid.")
+                return True
+            else:
+                print("❌ Session is invalid or expired.")
+                return False
+        except requests.exceptions.RequestException as e:
+            print(f"❌ An error occurred during session validation: {e}")
+            return False
+
     # --- Private Methods ---
 
     def __get_login_form_build_id(self):
