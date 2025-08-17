@@ -1,0 +1,36 @@
+# requirements.txt
+# --- For the Core Execution Engine (Celery) ---
+# Celery is the distributed task queue
+celery==5.3.6
+
+# Redis is the message broker and result backend for Celery.
+# Aiogram also uses this same library for its storage.
+redis==5.0.1
+
+# --- For the Registrar API and Scraper ---
+# Used for making HTTP requests to the university website
+requests==2.31.0
+
+# Used for parsing HTML content
+beautifulsoup4==4.12.2
+
+# The browser automation library for scraping course IDs
+playwright==1.40.0
+
+# --- For the Web Server ---
+# The modern, fast web framework for our API
+fastapi==0.108.0
+
+# The ASGI server to run our FastAPI application
+uvicorn[standard]==0.25.0
+
+# --- For the Telegram Bot ---
+# The asynchronous framework for building the Telegram bot
+aiogram==3.2.0
+
+# --- For Time Synchronization ---
+# Library to query NTP servers for accurate time
+ntplib==0.4.0
+
+# Windows compatible library for Celery
+eventlet
