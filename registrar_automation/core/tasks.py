@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 # data from the pre_login task.
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 
-@celery_app.task(name='tasks.pre_login')
+@celery_app.task(name='tasks.pre_login', time_limit=7)
 def pre_login(username, password, user_id):
     """
     Celery task to log in ahead of time and store the session in Redis.
@@ -45,7 +45,7 @@ def pre_login(username, password, user_id):
         return False
 
 
-@celery_app.task(name='tasks.run_registration')
+@celery_app.task(name='tasks.run_registration', time_limit=12)
 def run_registration(username, password, user_id, courses_to_register):
     """
     Celery task to perform the actual course registration.
@@ -112,7 +112,7 @@ def run_registration(username, password, user_id, courses_to_register):
         return {"status": "exception", "message": str(e)}
 
 
-@celery_app.task(name='tasks.update_course_ids')
+@celery_app.task(name='tasks.update_course_ids', time_limit=30)
 def update_course_ids(credentials, desired_schedule, course_names):
     """
     Celery task to scrape and validate course IDs using Playwright.
