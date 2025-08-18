@@ -15,29 +15,35 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 
 @celery_app.task(name='tasks.pre_login', time_limit=7)
-def pre_login(username, password, user_id):
+def pre_login(username, password):
     """
-    Celery task to log in ahead of time and store the session in Redis.
-    It has a hard time limit of 8 seconds to prevent collisions.
+    Logs in, fetches the student ID, and saves a temporary session.
+    Returns the student_id on success, None on failure.
     """
-    print(f"🚀 [pre_login] Starting pre-login for user_id: {user_id}")
+    print(f"🚀 [pre_login] Starting credential validation for user: {username}")
     try:
         api = RegistrarAPI()
         cookies, csrf_token = api.login(username, password)
 
         if cookies and csrf_token:
-            session_data = {"cookies": cookies, "csrf_token": csrf_token}
-            redis_key = f"session:{user_id}"
-            redis_client.set(redis_key, json.dumps(session_data), ex=15)
-            print(f"✅ [pre_login] Successfully saved fresh session to Redis for user_id: {user_id}")
-            return True
-        else:
-            print(f"❌ [pre_login] Failed to log in for user_id: {user_id}")
-            return False
-    except Exception as e:
-        print(f"❌ [pre_login] An exception occurred for user_id {user_id}: {e}")
-        return False
+            # After successful login, fetch the student ID
+            student_id = api.get_student_id()
+            if not student_id:
+                print(f"❌ [pre_login] Login succeeded but could not fetch student ID.")
+                return None # Return None if ID fetch fails
 
+            # Save the temporary session for the real registration
+            session_data = {"cookies": cookies, "csrf_token": csrf_token}
+            redis_key = f"session:{student_id}" # Use student_id in the key
+            redis_client.set(redis_key, json.dumps(session_data), ex=15)
+            print(f"✅ [pre_login] Successfully validated and fetched ID for user: {student_id}")
+            return student_id # Return the student_id on success
+        else:
+            print(f"❌ [pre_login] Failed to log in for user: {username}")
+            return None
+    except Exception as e:
+        print(f"❌ [pre_login] An exception occurred for user {username}: {e}")
+        return None
 
 @celery_app.task(name='tasks.run_registration', time_limit=12)
 def run_registration(username, password, user_id, courses_to_register):

@@ -13,7 +13,6 @@ redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_respo
 # --- Pydantic Models ---
 class UserCredentials(BaseModel):
     chat_id: int
-    user_id: str
     username: str
     password: str
 
@@ -23,14 +22,37 @@ class UserRequest(BaseModel):
 # --- Endpoints ---
 @router.post("/credentials")
 async def save_user_credentials(creds: UserCredentials):
+    """
+    Receives user credentials, validates them by running a pre_login task
+    which also fetches the student ID, and saves all data on success.
+    """
+    print(f"Received credentials for chat_id: {creds.chat_id}. Validating...")
+
+    # The pre_login task now only needs username and password
+    validation_task = pre_login.delay(creds.username, creds.password)
+    
+    try:
+        # The result will be the student_id string or None
+        fetched_student_id = validation_task.get(timeout=20)
+    except Exception as e:
+        print(f"❌ Credential validation task failed for chat_id {creds.chat_id}: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred during validation. The university website may be down.")
+
+    if not fetched_student_id:
+        print(f"❌ Invalid credentials for chat_id: {creds.chat_id}")
+        raise HTTPException(status_code=401, detail="Invalid username or password. Please try again.")
+
+    print(f"✅ Credentials validated successfully for chat_id: {creds.chat_id}. Saving...")
     user_key = f"user:{creds.chat_id}"
     user_data = {
-        "user_id": creds.user_id,
+        "student_id": fetched_student_id, # Save the fetched ID with the correct name
         "username": creds.username,
         "password": creds.password
     }
+
     redis_client.hset(user_key, mapping=user_data)
-    return {"status": "success", "message": "Credentials saved."}
+    return {"status": "success", "message": "Credentials have been validated and saved."}
+
 
 @router.post("/reset")
 async def reset_user_data(req: UserRequest):

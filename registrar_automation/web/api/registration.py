@@ -48,8 +48,10 @@ async def set_registration_time(reg_time: RegistrationTime):
     pre_login_timestamp = trigger_timestamp - 10
 
     registration_plan = {
-        "chat_id": reg_time.chat_id, "user_id": user_data['user_id'],
-        "username": user_data['username'], "password": user_data['password'],
+        "chat_id": reg_time.chat_id,
+        "student_id": user_data['student_id'],
+        "username": user_data['username'],
+        "password": user_data['password'],
         "courses": validated_courses
     }
     

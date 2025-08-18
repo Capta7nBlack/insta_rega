@@ -44,7 +44,7 @@ def run_scheduler():
                         # Send the pre_login task to the Celery workers
                         celery_app.send_task(
                             'tasks.pre_login',
-                            args=[job_data['username'], job_data['password'], job_data['user_id']]
+                            args=[job_data['username'], job_data['password']]
                         )
                     # Atomically delete the key so jobs aren't run twice
                     redis_client.delete(pre_login_key)
@@ -59,7 +59,7 @@ def run_scheduler():
                         # Send the run_registration task to the Celery workers
                         celery_app.send_task(
                             'tasks.run_registration',
-                            args=[job_data['username'], job_data['password'], job_data['user_id'], job_data['courses']]
+                            args=[job_data['username'], job_data['password'], job_data['student_id'], job_data['courses']]
                         )
                     # Atomically delete the key
                     redis_client.delete(reg_key)

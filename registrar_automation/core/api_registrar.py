@@ -56,6 +56,42 @@ class RegistrarAPI:
             print(f"❌ An error occurred during login request: {e}")
             return None, None
 
+
+    def get_student_id(self):
+        """
+        After a successful login, this method scrapes the student ID from the
+        'Check Grades' page.
+        """
+        print("--- Fetching Student ID ---")
+        try:
+            req = self.session.get(self.GRADES_PAGE_URL, verify=False)
+            req.raise_for_status()
+            soup = BeautifulSoup(req.text, 'html.parser')
+            
+            # Find the script tag containing the Drupal settings
+            script_tag = soup.find('script', string=lambda text: text and 'Drupal.settings' in text)
+            if not script_tag:
+                print("❌ Could not find the settings script tag on the grades page.")
+                return None
+
+            # Extract the JSON string from the script tag
+            json_string = script_tag.string.split('jQuery.extend(Drupal.settings, ', 1)[1].rsplit(');', 1)[0]
+            
+            # Parse the JSON
+            data = json.loads(json_string)
+            student_id = data['checkGrades']['studentDetails']['midterm']['STUDENTID']
+            
+            if student_id:
+                print(f"✅ Found Student ID: {student_id}")
+                return student_id
+            else:
+                print("❌ Student ID not found in the page data.")
+                return None
+        except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError, IndexError) as e:
+            print(f"❌ Failed to get or parse student ID: {e}")
+            return None
+
+
     def register_course(self, course_data, user_id, csrf_token):
         """
         Public method to register a single course.
@@ -101,6 +137,7 @@ class RegistrarAPI:
         except requests.exceptions.RequestException as e:
             print(f"   ❌ An error occurred while registering '{course_name}': {e}")
             return False
+
 
     def is_session_valid(self):
         """
