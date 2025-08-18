@@ -1,8 +1,10 @@
 # web/api/user.py
 
+from core.redis_utils import hset_compat
 import redis
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from core.tasks import pre_login
 
 # Import the cancel function to use in reset
 from .registration import cancel_registration
@@ -50,7 +52,7 @@ async def save_user_credentials(creds: UserCredentials):
         "password": creds.password
     }
 
-    redis_client.hset(user_key, mapping=user_data)
+    hset_compat(redis_client, user_key, user_data)
     return {"status": "success", "message": "Credentials have been validated and saved."}
 
 

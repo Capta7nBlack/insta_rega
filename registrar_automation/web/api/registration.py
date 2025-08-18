@@ -2,10 +2,13 @@
 
 import redis
 import json
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from web.time_utils import get_ntp_time_offset
+
+from core.redis_utils import hset_compat
 
 router = APIRouter(prefix="/registration", tags=["Registration"])
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
@@ -55,7 +58,7 @@ async def set_registration_time(reg_time: RegistrationTime):
         "courses": validated_courses
     }
     
-    redis_client.hset(user_key, mapping={
+    hset_compat(redis_client, user_key, {
         "trigger_timestamp": trigger_timestamp,
         "pre_login_timestamp": pre_login_timestamp,
         "target_time_str": reg_time.target_time_str

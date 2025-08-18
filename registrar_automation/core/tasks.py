@@ -46,25 +46,26 @@ def pre_login(username, password):
         return None
 
 @celery_app.task(name='tasks.run_registration', time_limit=12)
-def run_registration(username, password, user_id, courses_to_register):
+def run_registration(username, password, student_id, courses_to_register):
     """
     Celery task to perform course registration.
-    It has a hard time limit of 15 seconds.
+    The parameter 'user_id' has been renamed to 'student_id' for clarity.
     """
-    print(f"🎯 [run_registration] Starting registration for user_id: {user_id}")
+    print(f"🎯 [run_registration] Starting registration for student_id: {student_id}")
     
     session_data = None
     
     try:
-        redis_key = f"session:{user_id}"
+        # The session key is now consistently based on student_id
+        redis_key = f"session:{student_id}"
         session_json = redis_client.get(redis_key)
         if session_json:
             session_data = json.loads(session_json)
-            print(f"✅ [run_registration] Found fresh session in Redis for {user_id}.")
+            print(f"✅ [run_registration] Found fresh session in Redis for {student_id}.")
         else:
-            print(f"⚠️ [run_registration] No fresh session in Redis for {user_id}. Proceeding with manual login.")
+            print(f"⚠️ [run_registration] No fresh session in Redis for {student_id}. Proceeding with manual login.")
     except Exception as e:
-        print(f"❌ [run_registration] Error fetching session from Redis for {user_id}: {e}. Proceeding with manual login.")
+        print(f"❌ [run_registration] Error fetching session from Redis for {student_id}: {e}. Proceeding with manual login.")
 
     try:
         succeeded_courses = []
@@ -77,17 +78,18 @@ def run_registration(username, password, user_id, courses_to_register):
             api = RegistrarAPI()
             cookies, csrf_token = api.login(username, password)
             if not (cookies and csrf_token):
-                print(f"❌ [run_registration] Fallback login failed for {user_id}. Aborting.")
+                print(f"❌ [run_registration] Fallback login failed for {student_id}. Aborting.")
                 return {"status": "login_failed", "message": "Could not log in to the registrar."}
 
-        if not all([user_id, courses_to_register, csrf_token]):
-            print(f"❌ [run_registration] Incomplete data for {user_id}. Cannot register.")
+        if not all([student_id, courses_to_register, csrf_token]):
+            print(f"❌ [run_registration] Incomplete data for {student_id}. Cannot register.")
             return {"status": "error", "message": "Incomplete data provided to the registration task."}
 
-        print(f"📤 [run_registration] Initiating course registration for {user_id}...")
+        print(f"📤 [run_registration] Initiating course registration for {student_id}...")
         
         for course in courses_to_register:
-            is_success = api.register_course(course, user_id, csrf_token)
+            # Pass the student_id to the API method
+            is_success = api.register_course(course, student_id, csrf_token)
             if is_success:
                 succeeded_courses.append(course['name'])
             else:
@@ -103,13 +105,12 @@ def run_registration(username, password, user_id, courses_to_register):
             "failed_courses": failed_courses
         }
         
-        print(f"✅ [run_registration] Completed for {user_id}. Result: {result}")
+        print(f"✅ [run_registration] Completed for {student_id}. Result: {result}")
         return result
 
     except Exception as e:
-        print(f"❌ [run_registration] An exception occurred for user_id {user_id}: {e}")
+        print(f"❌ [run_registration] An exception occurred for student_id {student_id}: {e}")
         return {"status": "exception", "message": str(e)}
-
 
 @celery_app.task(name='tasks.update_course_ids', soft_time_limit=25, time_limit=30)
 def update_course_ids(credentials, desired_schedule, course_names):

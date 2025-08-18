@@ -34,3 +34,6 @@ ntplib==0.4.0
 
 # Windows compatible library for Celery
 eventlet
+
+# Library version controle manager
+packaging

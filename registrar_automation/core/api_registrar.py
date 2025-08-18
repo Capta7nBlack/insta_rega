@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import time
+import json
 
 class RegistrarAPI:
     """
@@ -10,6 +11,7 @@ class RegistrarAPI:
     LOGIN_URL = f"{BASE_URL}/user/login"
     REG_PAGE_URL = f"{BASE_URL}/my-registrar/course-registration"
     API_URL = f"{REG_PAGE_URL}/json"
+    GRADES_PAGE_URL = f"{BASE_URL}/my-registrar/check-grades"
 
     def __init__(self, session_cookies=None):
         self.session = requests.Session()

@@ -1,3 +1,5 @@
-*/__pycache__
+**/__pycache__
 schedule.txt
 config.json
+manual_test.py
+
