@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from web.time_utils import get_ntp_time_offset
+from celery.result import AsyncResult
 
 from core.redis_utils import hset_compat
 
@@ -43,11 +44,11 @@ async def set_registration_time(reg_time: RegistrationTime):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format.")
 
-    if target_dt < datetime.now() + timedelta(minutes=1):
-        raise HTTPException(status_code=400, detail="Registration time must be at least 1 minute in the future.")
+    if target_dt < datetime.now() + timedelta(seconds=14):
+        raise HTTPException(status_code=400, detail="Registration time must be at least 15 seconds in the future.")
 
     time_offset = get_ntp_time_offset()
-    trigger_timestamp = int(target_dt.timestamp()) + 1 - time_offset
+    trigger_timestamp = int(int(target_dt.timestamp()) + 1 - time_offset)
     pre_login_timestamp = trigger_timestamp - 10
 
     registration_plan = {
@@ -112,3 +113,31 @@ async def get_registration_status(chat_id: int):
     courses = [course['name'] for course in json.loads(validated_courses_json)]
 
     return {"status": "scheduled", "scheduled_time": target_time, "courses": courses}
+
+
+@router.get("/result")
+async def get_registration_result(chat_id: int):
+    """
+    The bot polls this endpoint after the scheduled time to get the
+    final registration report.
+    """
+    user_key = f"user:{chat_id}"
+    user_data = redis_client.hgetall(user_key)
+    if not user_data:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    task_id = user_data.get("registration_task_id")
+    if not task_id:
+        # This might happen if the scheduler hasn't run yet.
+        return {"status": "pending", "message": "Scheduler has not yet started the registration task."}
+
+    task_result = AsyncResult(task_id)
+    if not task_result.ready():
+        return {"status": "pending", "message": "Registration is in progress."}
+
+    if task_result.successful():
+        final_report = task_result.get()
+        return {"status": "success", "report": final_report}
+    else:
+        # The task failed with an exception
+        return {"status": "failed", "error": "The registration task failed unexpectedly."}

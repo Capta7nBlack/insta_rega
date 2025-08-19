@@ -46,13 +46,14 @@ def pre_login(username, password):
         return None
 
 @celery_app.task(name='tasks.run_registration', time_limit=12)
-def run_registration(username, password, student_id, courses_to_register):
+def run_registration(chat_id, username, password, student_id, courses_to_register):
     """
     Celery task to perform course registration.
     The parameter 'user_id' has been renamed to 'student_id' for clarity.
     """
     print(f"🎯 [run_registration] Starting registration for student_id: {student_id}")
-    
+ 
+    user_key = f"user:{chat_id}"
     session_data = None
     
     try:
@@ -111,6 +112,10 @@ def run_registration(username, password, student_id, courses_to_register):
     except Exception as e:
         print(f"❌ [run_registration] An exception occurred for student_id {student_id}: {e}")
         return {"status": "exception", "message": str(e)}
+    finally:
+        # This cleanup block runs regardless of success or failure.
+        print(f"🧹 [run_registration] Cleaning up schedule data for chat_id: {chat_id}")
+        redis_client.hdel(user_key, "trigger_timestamp", "pre_login_timestamp", "target_time_str")
 
 @celery_app.task(name='tasks.update_course_ids', soft_time_limit=25, time_limit=30)
 def update_course_ids(credentials, desired_schedule, course_names):

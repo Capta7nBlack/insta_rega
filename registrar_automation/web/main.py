@@ -1,7 +1,12 @@
 # web/main.py
 
+import logging
 from fastapi import FastAPI
-from .api import user, schedule, task, registration
+from .api import user, schedule, registration
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('uvicorn')
 
 # Initialize the FastAPI app
 app = FastAPI(
@@ -14,7 +19,6 @@ app = FastAPI(
 # Each router handles a specific part of the API's functionality.
 app.include_router(user.router)
 app.include_router(schedule.router)
-app.include_router(task.router)
 app.include_router(registration.router)
 
 @app.get("/", tags=["Root"])

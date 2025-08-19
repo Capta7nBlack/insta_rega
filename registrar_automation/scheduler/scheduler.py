@@ -42,10 +42,16 @@ def run_scheduler():
                     for job_json in pre_login_jobs:
                         job_data = json.loads(job_json)
                         # Send the pre_login task to the Celery workers
-                        celery_app.send_task(
-                            'tasks.pre_login',
-                            args=[job_data['username'], job_data['password']]
-                        )
+                        task = celery_app.send_task(
+                                'tasks.pre_login',
+                                args=[
+                                    job_data['username'],
+                                    job_data['password']
+                                    ]
+                                )
+                        # Save the task ID to the redis data base
+                        redis_client.hset(f"user:{job_data['chat_id']}", "pre_login_task_id", task.id)
+
                     # Atomically delete the key so jobs aren't run twice
                     redis_client.delete(pre_login_key)
 
@@ -57,10 +63,18 @@ def run_scheduler():
                     for job_json in reg_jobs:
                         job_data = json.loads(job_json)
                         # Send the run_registration task to the Celery workers
-                        celery_app.send_task(
-                            'tasks.run_registration',
-                            args=[job_data['username'], job_data['password'], job_data['student_id'], job_data['courses']]
-                        )
+                        task = celery_app.send_task(
+                                'tasks.run_registration',
+                                args=[
+                                    job_data['chat_id'],
+                                    job_data['username'],
+                                    job_data['password'],
+                                    job_data['student_id'],
+                                    job_data['courses']
+                                    ]
+                                )
+
+                        redis_client.hset(f"user:{job_data['chat_id']}", "registration_task_id", task.id)
                     # Atomically delete the key
                     redis_client.delete(reg_key)
 

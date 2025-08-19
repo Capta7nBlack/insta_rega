@@ -1,10 +1,13 @@
 # web/api/schedule.py
-
+import json
 import redis
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from core.tasks import update_course_ids
 from core.utils import parse_schedule_text
+from celery.result import AsyncResult
+
+
 
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
@@ -32,3 +35,25 @@ async def validate_schedule(schedule: ScheduleData):
         course_names=course_names
     )
     return {"status": "processing", "task_id": task.id}
+
+
+@router.get("/validate/status/{task_id}")
+async def get_validation_status(task_id: str, chat_id: int):
+    """
+    The bot polls this endpoint to check the result of the schedule validation task.
+    If the task is complete, it saves the result to Redis.
+    """
+    task_result = AsyncResult(task_id)
+    if not task_result.ready():
+        return {"status": "pending"}
+
+    if task_result.successful():
+        validated_courses = task_result.get()
+        if not validated_courses:
+            return {"status": "failed", "error": "Course validation failed. Please check your schedule.txt and try again."}
+
+        user_key = f"user:{chat_id}"
+        redis_client.hset(user_key, "validated_courses", json.dumps(validated_courses))
+        return {"status": "success", "result": validated_courses}
+    else:
+        return {"status": "failed", "error": "An unexpected error occurred during validation. Please try again later."}
