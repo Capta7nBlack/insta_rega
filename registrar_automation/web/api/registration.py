@@ -97,23 +97,6 @@ async def cancel_registration(req: UserRequest):
     
     return {"status": "cancelled", "message": "Your scheduled registration has been cancelled."}
 
-@router.get("/status")
-async def get_registration_status(chat_id: int):
-    user_key = f"user:{chat_id}"
-    user_data = redis_client.hgetall(user_key)
-    if not user_data:
-        raise HTTPException(status_code=404, detail="User not found.")
-
-    target_time = user_data.get("target_time_str")
-    validated_courses_json = user_data.get("validated_courses")
-
-    if not (target_time and validated_courses_json):
-        return {"status": "not_scheduled", "message": "You do not have an active registration scheduled."}
-
-    courses = [course['name'] for course in json.loads(validated_courses_json)]
-
-    return {"status": "scheduled", "scheduled_time": target_time, "courses": courses}
-
 
 @router.get("/result")
 async def get_registration_result(chat_id: int):

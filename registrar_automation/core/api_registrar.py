@@ -7,7 +7,7 @@ class RegistrarAPI:
     """
     Handles all network communication with the registrar's website.
     """
-    BASE_URL = "https://registrar.nu.edu.kz"
+    BASE_URL = "https://testregistrar.nu.edu.kz"
     LOGIN_URL = f"{BASE_URL}/user/login"
     REG_PAGE_URL = f"{BASE_URL}/my-registrar/course-registration"
     API_URL = f"{REG_PAGE_URL}/json"

@@ -9,7 +9,7 @@ class ScraperAPI:
     Handles all browser-based interactions with the registrar website for the purpose of
     scraping course IDs. It encapsulates a Playwright browser instance.
     """
-    BASE_URL = "https://registrar.nu.edu.kz"
+    BASE_URL = "https://testregistrar.nu.edu.kz"
     LOGIN_URL = f"{BASE_URL}/user/login"
     COURSE_REG_URL = f"{BASE_URL}/my-registrar/course-registration"
     SCHEDULE_TABLE_URL = f"{COURSE_REG_URL}/selected"

@@ -106,3 +106,49 @@ async def reset_user_data(req: UserRequest):
     redis_client.delete(user_key)
     return {"status": "reset_success", "message": "All your data has been cleared."}
 
+
+
+
+
+@router.get("/progress")
+async def get_user_progress(chat_id: int):
+    """
+    A single endpoint for the bot to check the user's overall progress
+    through the setup flow.
+    """
+    user_key = f"user:{chat_id}"
+    user_data = redis_client.hgetall(user_key)
+
+    # 1. Check if the user has any data at all
+    if not user_data:
+        return {"status": "uninitialized"}
+
+    # 2. Check if the user has a fully scheduled registration
+    if "trigger_timestamp" in user_data and "target_time_str" in user_data:
+        try:
+            validated_courses_json = user_data.get("validated_courses", "[]")
+            courses = [course['name'] for course in json.loads(validated_courses_json)]
+            return {
+                "status": "scheduled",
+                "scheduled_time": user_data['target_time_str'],
+                "courses": courses
+            }
+        except (json.JSONDecodeError, KeyError):
+             raise HTTPException(status_code=500, detail="Could not parse user's course data.")
+
+
+    # 3. Check if the user has validated their schedule
+    if "validated_courses" in user_data:
+        try:
+            validated_courses_json = user_data.get("validated_courses", "[]")
+            courses = [course['name'] for course in json.loads(validated_courses_json)]
+            return {"status": "schedule_saved", "courses": courses}
+        except (json.JSONDecodeError, KeyError):
+             raise HTTPException(status_code=500, detail="Could not parse user's course data.")
+
+    # 4. Check if the user has only saved their credentials
+    if "student_id" in user_data:
+        return {"status": "credentials_saved"}
+
+    # Fallback case, should not typically be reached
+    return {"status": "uninitialized"}
