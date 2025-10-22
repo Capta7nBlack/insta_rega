@@ -44,10 +44,15 @@ async def set_registration_time(reg_time: RegistrationTime):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format.")
 
-    if target_dt < datetime.now() + timedelta(seconds=14):
-        raise HTTPException(status_code=400, detail="Registration time must be at least 15 seconds in the future.")
-
     time_offset = get_ntp_time_offset()
+    
+    # Calculate the current time, adjusted by the NTP offset, to get the "true" time.
+    ntp_now = datetime.fromtimestamp(datetime.now().timestamp() - time_offset)
+
+    # Check if the user's target time is at least 20 seconds in the future from the true time.
+    if target_dt < ntp_now + timedelta(seconds=20):
+        raise HTTPException(status_code=400, detail="Registration time must be at least 20 seconds in the future.")
+
     trigger_timestamp = int(int(target_dt.timestamp()) + 1 - time_offset)
     pre_login_timestamp = trigger_timestamp - 10
 
