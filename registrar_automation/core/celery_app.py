@@ -14,6 +14,10 @@ celery_app = Celery(
     include=['core.tasks']  # Point to the module where tasks are defined
 )
 
+celery_app.conf.task_routes = {
+        'tasks.update_course_ids': {'queue': 'scraper_queue'}
+        }
+
 # Optional configuration
 celery_app.conf.update(
     task_serializer='json',
