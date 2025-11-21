@@ -15,15 +15,18 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 
 @celery_app.task(name='tasks.pre_login', time_limit=7)
-def pre_login(username, password):
+def pre_login(job_id, username, password, mode):
     """
     Logs in, fetches the student ID, and saves a temporary session.
     Returns the student_id on success, None on failure.
     """
-    print(f"🚀 [pre_login] Starting credential validation for user: {username}")
+
+    logger = pre_login_and_fetch_id.get_logger() # Получаем логгер Celery
+    logger.info(f"🚀 [pre_login:{job_id}] Starting credential validation for user: {username} on mode {mode}")
+
     try:
         api = RegistrarAPI()
-        cookies, csrf_token = api.login(username, password)
+        cookies, csrf_token = api.login(username, password, mode)
 
         if cookies and csrf_token:
             # After successful login, fetch the student ID
@@ -33,25 +36,32 @@ def pre_login(username, password):
                 return None # Return None if ID fetch fails
 
             # Save the temporary session for the real registration
-            session_data = {"cookies": cookies, "csrf_token": csrf_token}
-            redis_key = f"session:{student_id}" # Use student_id in the key
+            session_data = {
+                "cookies": cookies,
+                "csrf_token": csrf_token,
+                "student_id": student_id
+            }
+            redis_key = f"session:{job_id}" # Use student_id in the key
             redis_client.set(redis_key, json.dumps(session_data), ex=15)
-            print(f"✅ [pre_login] Successfully validated and fetched ID for user: {student_id}")
-            return student_id # Return the student_id on success
+            logger.info(f"✅ [pre_login:{job_id}] Successfully validated and fetched ID {student_id}")
+            return # Return the student_id on success
         else:
-            print(f"❌ [pre_login] Failed to log in for user: {username}")
+            logger.warning(f"❌ [pre_login:{job_id}] Failed to log in for user: {username}")
             return None
     except Exception as e:
-        print(f"❌ [pre_login] An exception occurred for user {username}: {e}")
+        logger.error(f"❌ [pre_login:{job_id}] An exception occurred: {e}", exc_info=True)
         return None
 
 @celery_app.task(name='tasks.run_registration', time_limit=12)
-def run_registration(chat_id, username, password, student_id, courses_to_register):
+def run_registration(job_id, chat_id, username, password, courses_to_register, mode):
+
+    logger = run_registration.get_logger()
+    logger.info(f"🎯 [run_registration:{job_id}] Starting registration for mode: {mode}")
+
     """
     Celery task to perform course registration.
     The parameter 'user_id' has been renamed to 'student_id' for clarity.
     """
-    print(f"🎯 [run_registration] Starting registration for student_id: {student_id}")
  
     user_key = f"user:{chat_id}"
     session_data = None
@@ -71,31 +81,35 @@ def run_registration(chat_id, username, password, student_id, courses_to_registe
     try:
         succeeded_courses = []
         failed_courses = []
+        api = None
 
         if session_data:
             api = RegistrarAPI(session_cookies=session_data.get('cookies'))
             csrf_token = session_data.get('csrf_token')
         else:
             api = RegistrarAPI()
-            cookies, csrf_token = api.login(username, password)
+            cookies, csrf_token = api.login(username, password, mode)
             if not (cookies and csrf_token):
-                print(f"❌ [run_registration] Fallback login failed for {student_id}. Aborting.")
+                logger.error(f"❌ [run_registration:{job_id}] Fallback login failed. Aborting.")
                 return {"status": "login_failed", "message": "Could not log in to the registrar."}
+              
+            student_id = api.get_student_id()
 
         if not all([student_id, courses_to_register, csrf_token]):
-            print(f"❌ [run_registration] Incomplete data for {student_id}. Cannot register.")
+            logger.error(f"❌[run_registration:{job_id}] Incomplete data. Cannot register. Has StudentID: {bool(student_id)}, Has Courses: {bool(courses_to_register)}, Has Token: {bool(csrf_token)}")
+
             return {"status": "error", "message": "Incomplete data provided to the registration task."}
 
-        print(f"📤 [run_registration] Initiating course registration for {student_id}...")
-        
+        logger.info(f"📤 [run_registration:{job_id}] Initiating course registration for student {student_id}...")
+
         for course in courses_to_register:
             # Pass the student_id to the API method
-            is_success = api.register_course(course, student_id, csrf_token)
+            is_success, reason = api.register_course(course, student_id, csrf_token, mode)
             if is_success:
                 succeeded_courses.append(course['name'])
             else:
-                failed_courses.append(course['name'])
-        
+                failed_courses.append({"name": course['name'], "reason": reason})
+
         total_attempted = len(courses_to_register)
         total_succeeded = len(succeeded_courses)
         
@@ -104,6 +118,7 @@ def run_registration(chat_id, username, password, student_id, courses_to_registe
             "total_succeeded": total_succeeded,
             "succeeded_courses": succeeded_courses,
             "failed_courses": failed_courses
+            "mode": mode
         }
         
         print(f"✅ [run_registration] Completed for {student_id}. Result: {result}")

@@ -1,44 +1,47 @@
 # web/api/schedule.py
 import json
 import redis
+import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from core.tasks import update_course_ids
 from core.utils import parse_schedule_text
 from celery.result import AsyncResult
 
-
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 
 # --- Pydantic Models ---
 class ScheduleData(BaseModel):
-    chat_id: int
+    username: str
+    password: str
     schedule_text: str
 
 # --- Endpoints ---
 @router.post("/validate")
 async def validate_schedule(schedule: ScheduleData):
-    user_key = f"user:{schedule.chat_id}"
-    user_data = redis_client.hgetall(user_key)
-    if not user_data:
-        raise HTTPException(status_code=404, detail="User credentials not found.")
 
+    logger.info(f"Starting schedule validation task for user: {schedule.username}")
+    
     desired_schedule, course_names = parse_schedule_text(schedule.schedule_text)
     if not course_names:
         raise HTTPException(status_code=400, detail="Schedule file is empty or invalid.")
 
     task = update_course_ids.delay(
-        credentials={"username": user_data['username'], "password": user_data['password']},
+        credentials={"username": schedule.username, "password": schedule.password},
         desired_schedule=desired_schedule,
         course_names=course_names
     )
+
+    logger.info(f"Task {task.id} created for schedule validation.")
+
     return {"status": "processing", "task_id": task.id}
 
 
 @router.get("/validate/status/{task_id}")
-async def get_validation_status(task_id: str, chat_id: int):
+async def get_validation_status(task_id: str):
     """
     The bot polls this endpoint to check the result of the schedule validation task.
     If the task is complete, it saves the result to Redis.
@@ -52,8 +55,10 @@ async def get_validation_status(task_id: str, chat_id: int):
         if not validated_courses:
             return {"status": "failed", "error": "Course validation failed. Please check your schedule.txt and try again."}
 
-        user_key = f"user:{chat_id}"
-        redis_client.hset(user_key, "validated_courses", json.dumps(validated_courses))
+        logger.info(f"Task {task_id} validation successful.")
         return {"status": "success", "result": validated_courses}
+
     else:
+
+        logger.error(f"Task {task_id} failed with an exception.", exc_info=True)
         return {"status": "failed", "error": "An unexpected error occurred during validation. Please try again later."}
