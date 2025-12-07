@@ -2,4 +2,6 @@
 schedule.txt
 config.json
 manual_test.py
+*.env
+
 

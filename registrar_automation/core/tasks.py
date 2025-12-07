@@ -3,8 +3,9 @@
 import json
 import redis
 import warnings
+from celery.utils.log import get_task_logger
 from .celery_app import celery_app
-from celery.exceptions import SoftTimeLimitExceeded # Import the exception
+from celery.exceptions import SoftTimeLimitExceeded
 from .api_registrar import RegistrarAPI
 from .api_scraper import ScraperAPI
 
@@ -14,37 +15,38 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 # Connect to Redis
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 
-@celery_app.task(name='tasks.pre_login', time_limit=7)
+# Initialize standard Celery logger
+logger = get_task_logger(__name__)
+
+@celery_app.task(name='tasks.pre_login', time_limit=8)
 def pre_login(job_id, username, password, mode):
     """
     Logs in, fetches the student ID, and saves a temporary session.
     Returns the student_id on success, None on failure.
     """
-
-    logger = pre_login_and_fetch_id.get_logger() # Получаем логгер Celery
     logger.info(f"🚀 [pre_login:{job_id}] Starting credential validation for user: {username} on mode {mode}")
 
     try:
-        api = RegistrarAPI()
-        cookies, csrf_token = api.login(username, password, mode)
+        api = RegistrarAPI(mode=mode)
+        cookies, csrf_token = api.login(username, password)
 
         if cookies and csrf_token:
             # After successful login, fetch the student ID
             student_id = api.get_student_id()
             if not student_id:
-                print(f"❌ [pre_login] Login succeeded but could not fetch student ID.")
-                return None # Return None if ID fetch fails
+                logger.error(f"❌ [pre_login:{job_id}] Login succeeded but could not fetch student ID.")
+                return None 
 
-            # Save the temporary session for the real registration
+            # Save the temporary session using job_id so run_registration can find it
             session_data = {
                 "cookies": cookies,
                 "csrf_token": csrf_token,
                 "student_id": student_id
             }
-            redis_key = f"session:{job_id}" # Use student_id in the key
+            redis_key = f"session:{job_id}" 
             redis_client.set(redis_key, json.dumps(session_data), ex=15)
             logger.info(f"✅ [pre_login:{job_id}] Successfully validated and fetched ID {student_id}")
-            return # Return the student_id on success
+            return 
         else:
             logger.warning(f"❌ [pre_login:{job_id}] Failed to log in for user: {username}")
             return None
@@ -52,127 +54,122 @@ def pre_login(job_id, username, password, mode):
         logger.error(f"❌ [pre_login:{job_id}] An exception occurred: {e}", exc_info=True)
         return None
 
-@celery_app.task(name='tasks.run_registration', time_limit=12)
+@celery_app.task(name='tasks.run_registration', time_limit=15)
 def run_registration(job_id, chat_id, username, password, courses_to_register, mode):
-
-    logger = run_registration.get_logger()
-    logger.info(f"🎯 [run_registration:{job_id}] Starting registration for mode: {mode}")
-
     """
     Celery task to perform course registration.
-    The parameter 'user_id' has been renamed to 'student_id' for clarity.
     """
+    logger.info(f"🎯 [run_registration:{job_id}] Starting registration for mode: {mode}")
  
     user_key = f"user:{chat_id}"
     session_data = None
+    student_id = None
     
+    # 1. Try to retrieve the session created by pre_login
     try:
-        # The session key is now consistently based on student_id
-        redis_key = f"session:{student_id}"
+        # Use job_id to find the session, not student_id (which we don't have yet)
+        redis_key = f"session:{job_id}"
         session_json = redis_client.get(redis_key)
+        
         if session_json:
             session_data = json.loads(session_json)
-            print(f"✅ [run_registration] Found fresh session in Redis for {student_id}.")
+            student_id = session_data.get('student_id')
+            logger.info(f"✅ [run_registration:{job_id}] Found fresh session in Redis for {student_id}.")
         else:
-            print(f"⚠️ [run_registration] No fresh session in Redis for {student_id}. Proceeding with manual login.")
+            logger.warning(f"⚠️ [run_registration:{job_id}] No fresh session found. Proceeding with manual login.")
     except Exception as e:
-        print(f"❌ [run_registration] Error fetching session from Redis for {student_id}: {e}. Proceeding with manual login.")
+        logger.error(f"❌ [run_registration:{job_id}] Error fetching session from Redis: {e}. Proceeding with manual login.")
 
+    # 2. Login or Initialize API
     try:
         succeeded_courses = []
         failed_courses = []
         api = None
+        csrf_token = None
 
         if session_data:
-            api = RegistrarAPI(session_cookies=session_data.get('cookies'))
+            api = RegistrarAPI(session_cookies=session_data.get('cookies'), mode=mode)
             csrf_token = session_data.get('csrf_token')
         else:
-            api = RegistrarAPI()
-            cookies, csrf_token = api.login(username, password, mode)
+            # Fallback: Login manually if session is missing
+            api = RegistrarAPI(mode=mode)
+            cookies, csrf_token = api.login(username, password)
             if not (cookies and csrf_token):
                 logger.error(f"❌ [run_registration:{job_id}] Fallback login failed. Aborting.")
                 return {"status": "login_failed", "message": "Could not log in to the registrar."}
-              
+            
             student_id = api.get_student_id()
 
         if not all([student_id, courses_to_register, csrf_token]):
-            logger.error(f"❌[run_registration:{job_id}] Incomplete data. Cannot register. Has StudentID: {bool(student_id)}, Has Courses: {bool(courses_to_register)}, Has Token: {bool(csrf_token)}")
-
+            logger.error(f"❌ [run_registration:{job_id}] Incomplete data. StudentID: {bool(student_id)}, Courses: {bool(courses_to_register)}, Token: {bool(csrf_token)}")
             return {"status": "error", "message": "Incomplete data provided to the registration task."}
 
         logger.info(f"📤 [run_registration:{job_id}] Initiating course registration for student {student_id}...")
 
+        # 3. Register Courses
         for course in courses_to_register:
-            # Pass the student_id to the API method
-            is_success, reason = api.register_course(course, student_id, csrf_token, mode)
+            is_success, reason = api.register_course(course, student_id, csrf_token) # Removed mode arg if not supported by register_course
             if is_success:
                 succeeded_courses.append(course['name'])
             else:
                 failed_courses.append({"name": course['name'], "reason": reason})
 
-        total_attempted = len(courses_to_register)
-        total_succeeded = len(succeeded_courses)
-        
         result = {
-            "total_attempted": total_attempted,
-            "total_succeeded": total_succeeded,
+            "total_attempted": len(courses_to_register),
+            "total_succeeded": len(succeeded_courses),
             "succeeded_courses": succeeded_courses,
-            "failed_courses": failed_courses
+            "failed_courses": failed_courses,
             "mode": mode
         }
         
-        print(f"✅ [run_registration] Completed for {student_id}. Result: {result}")
+        logger.info(f"✅ [run_registration:{job_id}] Completed for {student_id}. Result: {result}")
         return result
 
     except Exception as e:
-        print(f"❌ [run_registration] An exception occurred for student_id {student_id}: {e}")
+        logger.error(f"❌ [run_registration:{job_id}] An exception occurred: {e}", exc_info=True)
         return {"status": "exception", "message": str(e)}
     finally:
-        # This cleanup block runs regardless of success or failure.
-        print(f"🧹 [run_registration] Cleaning up schedule data for chat_id: {chat_id}")
+        logger.info(f"🧹 [run_registration:{job_id}] Cleaning up schedule data for chat_id: {chat_id}")
         redis_client.hdel(user_key, "trigger_timestamp", "pre_login_timestamp", "target_time_str")
 
-@celery_app.task(name='tasks.update_course_ids', soft_time_limit=25, time_limit=30)
+@celery_app.task(name='tasks.update_course_ids', soft_time_limit=50, time_limit=60)
 def update_course_ids(credentials, desired_schedule, course_names):
     """
     Celery task to scrape and validate course IDs using Playwright.
-    It has a soft time limit to gracefully fail before the hard limit.
     """
     username = credentials.get('username')
-    print(f"🛠️ [update_ids] Starting course ID scraping for user: {username}")
+    logger.info(f"🛠️ [update_ids] Starting course ID scraping for user: {username}")
     
-    scraper = ScraperAPI(headless=True)
+    scraper = ScraperAPI(headless=True, mode='test')
     
     try:
         final_course_list = []
 
         if not scraper.login(credentials):
-            print(f"❌ [update_ids] Login failed for {username}")
+            logger.error(f"❌ [update_ids] Login failed for {username}")
             return None
 
         scraper.add_courses_to_schedule(course_names)
         scraped_course_map = scraper.scrape_all_course_ids(desired_schedule)
 
         if not scraped_course_map:
-            print(f"❌ [update_ids] No data was scraped for {username}.")
+            logger.error(f"❌ [update_ids] No data was scraped for {username}.")
             return None
 
         final_course_list = scraper.validate_and_build_course_list(desired_schedule, scraped_course_map)
 
         if final_course_list:
-            print(f"✅ [update_ids] Successfully scraped and validated courses for {username}")
+            logger.info(f"✅ [update_ids] Successfully scraped and validated courses for {username}")
             return final_course_list
         else:
-            print(f"⚠️ [update_ids] No valid courses found after validation for {username}")
+            logger.warning(f"⚠️ [update_ids] No valid courses found after validation for {username}")
             return None
 
     except SoftTimeLimitExceeded:
-        print(f"❌ [update_ids] SOFT TIME LIMIT EXCEEDED for user {username}. Aborting task.")
-        # Returning None will be interpreted as a failure by the web server's polling endpoint.
+        logger.error(f"❌ [update_ids] SOFT TIME LIMIT EXCEEDED for user {username}. Aborting task.")
         return None
     except Exception as e:
-        print(f"❌ [update_ids] An exception occurred during scraping for {username}: {e}")
+        logger.error(f"❌ [update_ids] An exception occurred during scraping for {username}: {e}", exc_info=True)
         return None
     finally:
-        # This block will run even if the time limit is exceeded, ensuring the browser closes.
         scraper.close()

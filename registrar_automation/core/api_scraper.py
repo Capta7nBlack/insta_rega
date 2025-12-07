@@ -9,17 +9,32 @@ class ScraperAPI:
     Handles all browser-based interactions with the registrar website for the purpose of
     scraping course IDs. It encapsulates a Playwright browser instance.
     """
-    BASE_URL = "https://testregistrar.nu.edu.kz"
-    LOGIN_URL = f"{BASE_URL}/user/login"
-    COURSE_REG_URL = f"{BASE_URL}/my-registrar/course-registration"
-    SCHEDULE_TABLE_URL = f"{COURSE_REG_URL}/selected"
-
-    def __init__(self, headless=False):
+    
+    def __init__(self, headless=False, mode='test'):
         """Initializes the Playwright instance and launches the browser."""
+
+        # Determine URL based on mode
+        if mode == 'real':
+            self.BASE_URL = "https://registrar.nu.edu.kz"
+        else:
+            self.BASE_URL = "https://testregistrar.nu.edu.kz"
+            
+        self.LOGIN_URL = f"{self.BASE_URL}/user/login"
+        self.REG_PAGE_URL = f"{self.BASE_URL}/my-registrar/course-registration"
+        self.API_URL = f"{self.REG_PAGE_URL}/json"
+        self.GRADES_PAGE_URL = f"{self.BASE_URL}/my-registrar/check-grades"
+        self.COURSE_REG_URL = self.REG_PAGE_URL
+        self.SCHEDULE_TABLE_URL = f"{self.BASE_URL}/my-registrar/course-registration/selected"
+
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(headless=headless)
+        self._browser = self._playwright.chromium.launch(
+                headless=headless,
+                args=["--no-sandbox","--disable-setuid-sandbox"]
+                )
+
         self._page = self._browser.new_page()
-        print("✅ ScraperAPI initialized, browser launched.")
+        print(f"✅ ScraperAPI initialized in {mode} mode, browser launched.")
+
 
     def login(self, credentials: dict):
         """

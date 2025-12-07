@@ -7,13 +7,21 @@ class RegistrarAPI:
     """
     Handles all network communication with the registrar's website.
     """
-    BASE_URL = "https://testregistrar.nu.edu.kz"
-    LOGIN_URL = f"{BASE_URL}/user/login"
-    REG_PAGE_URL = f"{BASE_URL}/my-registrar/course-registration"
-    API_URL = f"{REG_PAGE_URL}/json"
-    GRADES_PAGE_URL = f"{BASE_URL}/my-registrar/check-grades"
 
-    def __init__(self, session_cookies=None):
+    def __init__(self, session_cookies=None, mode='test'):
+
+        # Determine URL based on mode
+        if mode == 'real':
+            self.BASE_URL = "https://registrar.nu.edu.kz"
+        else:
+            self.BASE_URL = "https://testregistrar.nu.edu.kz"
+            
+        self.LOGIN_URL = f"{self.BASE_URL}/user/login"
+        self.REG_PAGE_URL = f"{self.BASE_URL}/my-registrar/course-registration"
+        self.API_URL = f"{self.REG_PAGE_URL}/json"
+        self.GRADES_PAGE_URL = f"{self.BASE_URL}/my-registrar/check-grades"
+
+
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
@@ -130,15 +138,15 @@ class RegistrarAPI:
             message = response_data.get("message","")
             if response_data.get("success") is True or "Registration Successful" in message:
                 print(f"   ✅ SUCCESS: Successfully registered '{course_name}'.")
-                return True
+                return True, course_name
             else:
                 # Extract the error message if available
                 error_message = response_data.get("message", "No reason provided.")
                 print(f"   ❌ FAILED: Could not register '{course_name}'. Reason: {error_message}")
-                return False        
+                return False, error_message   
         except requests.exceptions.RequestException as e:
             print(f"   ❌ An error occurred while registering '{course_name}': {e}")
-            return False
+            return False, str(e)
 
 
     def is_session_valid(self):

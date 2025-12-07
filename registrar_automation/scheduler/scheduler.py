@@ -4,22 +4,26 @@ import time
 import redis
 import json
 from celery import Celery
+import os
+
+
+REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
 
 # Configure a Celery app instance just for sending tasks
 celery_app = Celery(
     'scheduler_tasks',
-    broker='redis://localhost:6379/0'
+    broker='redis://{REDIS_HOST}:6379/0'
 )
 
 # Connect to Redis to check for scheduled jobs
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.StrictRedis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
 
 def run_scheduler():
     """
     The main loop for the scheduler. It runs once per second, checks for jobs,
     and creates Celery tasks for any jobs it finds.
     """
-    print("✅ Scheduler started. Waiting for jobs...")
+    print(f"✅ Scheduler started. Connecting to Redis at {REDIS_HOST}")
     
     # On startup, set the last checked time to a minute ago to catch up on missed jobs
     last_checked_timestamp = int(time.time()) - 60
@@ -45,11 +49,13 @@ def run_scheduler():
                         task = celery_app.send_task(
                                 'tasks.pre_login',
                                 args=[
+                                    job_data['job_id'],   # Added
                                     job_data['username'],
-                                    job_data['password']
+                                    job_data['password'],
+                                    job_data['mode']      # Added
                                     ]
-                                )
-                        # Save the task ID to the redis data base
+                                )                       
+                         # Save the task ID to the redis data base
                         redis_client.hset(f"user:{job_data['chat_id']}", "pre_login_task_id", task.id)
 
                     # Atomically delete the key so jobs aren't run twice
@@ -66,14 +72,14 @@ def run_scheduler():
                         task = celery_app.send_task(
                                 'tasks.run_registration',
                                 args=[
+                                    job_data['job_id'],
                                     job_data['chat_id'],
                                     job_data['username'],
                                     job_data['password'],
-                                    job_data['student_id'],
-                                    job_data['courses']
+                                    job_data['courses'],
+                                    job_data['mode']
                                     ]
                                 )
-
                         redis_client.hset(f"user:{job_data['chat_id']}", "registration_task_id", task.id)
                     # Atomically delete the key
                     redis_client.delete(reg_key)

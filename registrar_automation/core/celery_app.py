@@ -1,5 +1,5 @@
 # insta_rega/core/celery_app.py
-
+import os
 from celery import Celery
 
 # Initialize the Celery application.
@@ -7,10 +7,14 @@ from celery import Celery
 # The broker URL points to our Redis instance. Redis is used to pass messages
 # between our web server/scheduler and the Celery workers.
 # The backend URL is also Redis. This is used to store the results of tasks.
+
+
+redis_url = os.getenv('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
+
 celery_app = Celery(
     'tasks',
-    broker='redis://localhost:6379/0',
-    backend='redis://localhost:6379/0',
+    broker=redis_url,
+    backend=redis_url,
     include=['core.tasks']  # Point to the module where tasks are defined
 )
 

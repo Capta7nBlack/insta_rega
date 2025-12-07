@@ -1,5 +1,6 @@
 # web/api/user.py
 
+import os
 import logging
 import redis
 import json
@@ -12,7 +13,10 @@ from core.redis_utils import hset_compat
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/user", tags=["User"])
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+redis_client = redis.StrictRedis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
+
 
 # --- Constant Variables ---
 DEFAULT_ATTEMPTS = 100
@@ -34,10 +38,10 @@ async def validate_user_credentials(creds: UserCredentials):
     """
     logger.info(f"Validating credentials for user: {creds.username} against mode: {creds.mode}")
     try:
-        api = RegistrarAPI()
+        api = RegistrarAPI(mode=creds.mode)
         # api.login возвращает (cookies, token) при успехе
         # и (None, None) при неудаче.
-        cookies, token = api.login(creds.username, creds.password, creds.mode)
+        cookies, token = api.login(creds.username, creds.password)
         
         if not (cookies and token):
             logger.warning(f"Validation failed for user: {creds.username} on mode: {creds.mode}")
@@ -74,3 +78,4 @@ async def get_user_status(chat_id: int):
         "status": "success",
         "chat_id": chat_id,
         "attempts_left": int(attempts_left)
+    }

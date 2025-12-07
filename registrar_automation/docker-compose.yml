@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # 1. The Database
+  redis:
+    image: redis:7-alpine
+    # Use host networking to bypass WSL DNS issues
+    network_mode: host
+    volumes:
+      - redis_data:/data
+
+  # 2. The Web API (FastAPI)
+  web:
+    build: .
+    command: uvicorn web.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - .:/app
+    # Use host networking
+    network_mode: host
+    environment:
+      - REDIS_HOST=127.0.0.1
+      - APP_ID=registrar-bot
+      - TZ=Asia/Almaty  # <--- ADD THIS
+
+  # 3. The Celery Worker (Executes tasks)
+  worker:
+    build: .
+    # Standard celery worker command
+    command: celery -A core.celery_app worker --loglevel=info -Q celery,scraper_queue
+    volumes:
+      - .:/app
+    network_mode: host
+    environment:
+      - REDIS_HOST=127.0.0.1
+      - CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+      - CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
+      - TZ=Asia/Almaty
+    # Increase shared memory for Chrome/Playwright
+    shm_size: '2gb' 
+
+  # 4. The Scheduler (Custom loop)
+  scheduler:
+    build: .
+    command: python -m scheduler.scheduler
+    volumes:
+      - .:/app
+    network_mode: host
+    environment:
+      - REDIS_HOST=127.0.0.1
+      - CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+      - TZ=Asia/Almaty
+
+  # 5. The Telegram Bot
+  bot:
+    build: .
+    command: python -m bot.main
+    volumes:
+      - .:/app
+    network_mode: host
+    # Waits for the web API to be up
+    depends_on:
+      - web
+    environment:
+      # MUST use 127.0.0.1 because network_mode: host disables service discovery
+      - API_BASE_URL=http://127.0.0.1:8000
+      - BOT_TOKEN=${BOT_TOKEN} 
+      - TZ=Asia/Almaty
+
+volumes:
+  redis_data:

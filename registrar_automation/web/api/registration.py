@@ -4,6 +4,7 @@ import redis
 import json
 import uuid
 import logging
+import os
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -15,8 +16,11 @@ from core.redis_utils import hset_compat
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/registration", tags=["Registration"])
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 
+REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1') 
+redis_client = redis.StrictRedis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
+
+DEFAULT_ATTEMPTS = 100
 
 async def check_user_attempts(chat_id: int):
     """
@@ -26,6 +30,15 @@ async def check_user_attempts(chat_id: int):
     """
     user_key = f"user:{chat_id}"
     try:
+
+        if not redis_client.hexists(user_key, "attempts_left"):
+            logger.info(f"User {chat_id} not found in Redis. Initializing with {DEFAULT_ATTEMPTS} attempts.")
+            # We use hset directly here since we are setting a single field, 
+            # but you can use hset_compat if you want to be safe with older Redis versions.
+            redis_client.hset(user_key, "attempts_left", DEFAULT_ATTEMPTS)
+
+
+
         # HINCRBY - атомарная операция
         new_attempts = redis_client.hincrby(user_key, "attempts_left", -1)
         
@@ -52,7 +65,7 @@ class NewRegistrationJob(BaseModel):
     chat_id: int
     username: str
     password: str
-    target_time_str: str # Формат: "YYYY-MM-DD HH:MM:SS"
+    target_time_str: str # Формат: "YYYY-MM-DD HH:MM:SS or NOW"
     mode: str            # 'real' или 'test'
     validated_courses: list 
 
@@ -70,11 +83,7 @@ async def create_registration_job(job: NewRegistrationJob, attempts_left: int = 
     Конечная точка FSM. Получает все данные о задании,
     создает job_id, сохраняет его в job_index и ставит в очередь шедулера.
     """
-    try:
-        target_dt = datetime.strptime(job.target_time_str, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Must be YYYY-MM-DD HH:MM:SS")
-
+    
     try:
         time_offset = get_ntp_time_offset()
     except Exception as e:
@@ -83,13 +92,38 @@ async def create_registration_job(job: NewRegistrationJob, attempts_left: int = 
 
     ntp_now = datetime.fromtimestamp(datetime.now().timestamp() - time_offset)
 
-    if target_dt < ntp_now + timedelta(seconds=20):
-        logger.warning(f"Job creation failed: Target time {target_dt} is in the past or too soon.")
-        raise HTTPException(status_code=400, detail="Registration time must be at least 20 seconds in the future.")
+    if job.target_time_str == "NOW":
+        # IMMEDIATE EXECUTION FOR TESTING
 
-    # Вычисление временных меток для "Timed Strike"
-    trigger_timestamp = int(int(target_dt.timestamp()) + 1 - time_offset)
-    pre_login_timestamp = trigger_timestamp - 10 # За 10 секунд
+
+        target_dt = ntp_now + timedelta(seconds=60)
+        # We strictly respect your rule: pre_login is 12 seconds before trigger.
+        pre_login_dt = target_dt - timedelta(seconds=12)
+        
+        trigger_timestamp = int(target_dt.timestamp())
+        pre_login_timestamp = int(pre_login_dt.timestamp())
+        
+        # Override the string for the dashboard response
+        job.target_time_str = target_dt.strftime("%Y-%m-%d %H:%M:%S")
+        
+        logger.info(f"Immediate job requested. Trigger: {trigger_timestamp}, Pre-login: {pre_login_timestamp}")
+
+    else:
+
+        try:
+            target_dt = datetime.strptime(job.target_time_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Must be YYYY-MM-DD HH:MM:SS")
+
+        
+
+        if target_dt < ntp_now + timedelta(seconds=20):
+            logger.warning(f"Job creation failed: Target time {target_dt} is in the past or too soon.")
+            raise HTTPException(status_code=400, detail="Registration time must be at least 20 seconds in the future.")
+
+        # Вычисление временных меток для "Timed Strike"
+        trigger_timestamp = int(int(target_dt.timestamp()) + 1 - time_offset)
+        pre_login_timestamp = trigger_timestamp - 12 # За 12 секунд
     
     job_id = str(uuid.uuid4()) # Уникальный ID для этого задания
 

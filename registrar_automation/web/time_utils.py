@@ -18,7 +18,7 @@ def get_ntp_time_offset():
     
     try:
         print("⏳ [TimeUtils] Querying NTP server for accurate time...")
-        response = ntp_client.request(ntp_server, version=3)
+        response = ntp_client.request(ntp_server, version=3, port=123)
         # The 'offset' attribute is the difference between the local clock
         # and the true time provided by the server.
         offset = response.offset
