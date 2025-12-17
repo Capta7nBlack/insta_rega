@@ -2,7 +2,7 @@
 
 import logging
 from fastapi import FastAPI
-from .api import user, schedule, registration
+from .api import user, schedule, registration, notifications
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +20,7 @@ app = FastAPI(
 app.include_router(user.router)
 app.include_router(schedule.router)
 app.include_router(registration.router)
+app.include_router(notifications.router)
 
 @app.get("/", tags=["Root"])
 async def read_root():

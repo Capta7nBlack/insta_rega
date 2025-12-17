@@ -39,11 +39,10 @@ async def validate_user_credentials(creds: UserCredentials):
     logger.info(f"Validating credentials for user: {creds.username} against mode: {creds.mode}")
     try:
         api = RegistrarAPI(mode=creds.mode)
-        # api.login возвращает (cookies, token) при успехе
-        # и (None, None) при неудаче.
-        cookies, token = api.login(creds.username, creds.password)
+
+        is_valid = api.validate_login(creds.username, creds.password)
         
-        if not (cookies and token):
+        if not is_valid:
             logger.warning(f"Validation failed for user: {creds.username} on mode: {creds.mode}")
             raise HTTPException(status_code=401, detail="Invalid username or password.")
 

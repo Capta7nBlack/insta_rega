@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 def create_date_calendar():
     """
@@ -69,4 +69,16 @@ def create_test_options_keyboard():
         builder.button(text=btn_text, callback_data=date.strftime("date_%Y-%m-%d"))
 
     builder.adjust(1, 3) # "Run Now" takes full row, then 3 cols for dates
+    return builder.as_markup()
+
+
+
+def create_confirmation_keyboard() -> InlineKeyboardMarkup:
+    """
+    Creates a keyboard for confirming or canceling the validated schedule.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Confirm & Continue", callback_data="confirm_schedule")
+    builder.button(text="❌ Cancel", callback_data="cancel_flow")
+    builder.adjust(1)
     return builder.as_markup()

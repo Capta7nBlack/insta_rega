@@ -4,6 +4,11 @@ FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 # Set the working directory in the container to /app
 WORKDIR /app
 
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy the requirements file into the container at /app
 COPY requirements.txt .
 

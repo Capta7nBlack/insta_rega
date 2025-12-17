@@ -152,16 +152,20 @@ class ScraperAPI:
                 
         return scraped_course_map
 
-    def validate_and_build_course_list(self, desired_schedule: dict, scraped_course_map: dict) -> list:
+
+    def validate_and_build_course_list(self, desired_schedule: dict, scraped_course_map: dict) -> dict:
         """
-        Validates the user's desired schedule against the scraped data and builds the
-        final list of course objects for the configuration file.
+        Validates the schedule and returns a dict with 'valid_courses' and 'errors'.
         """
         print("\n--- Validating Scraped Data and Building Final Config ---")
         final_course_list = []
+        validation_errors = []
+
         for course_code, desired_sections in desired_schedule.items():
             if course_code not in scraped_course_map:
-                print(f"⚠️ WARNING: '{course_code}' was in schedule.txt but couldn't be scraped. Skipping.")
+                msg = f"Course '{course_code}' was in schedule.txt but couldn't be scraped."
+                print(f"⚠️ {msg}")
+                validation_errors.append(msg)
                 continue
 
             scraped_course = scraped_course_map[course_code]
@@ -170,40 +174,51 @@ class ScraperAPI:
                 "instance_id": scraped_course.get('instance_id', ''),
                 "components": []
             }
-            is_valid = True
+            
+            # Temporary list to hold components if they are valid
+            temp_components = []
+            is_course_valid = True
+
             for section in desired_sections:
                 type_map = {
-                        "L": "Lecture",
-                        "Lb": "Lab",
-                        "S": "Seminar",
-                        "R": "Recitation",
-                        "T": "Tutorial"
+                        "L": "Lecture", "Lb": "Lab", "S": "Seminar",
+                        "R": "Recitation", "T": "Tutorial"
                 }
                 scraped_comp_type = type_map.get(section['type'])
 
                 if not scraped_comp_type or scraped_comp_type not in scraped_course['components']:
-                    print(f"❌ ERROR: For '{course_code}', component type '{section['type']}' ('{scraped_comp_type}') not found in scraped data.")
-                    is_valid = False
+                    msg = f"'{course_code}': Component '{section['type']}' not found."
+                    print(f"❌ {msg}")
+                    validation_errors.append(msg)
+                    is_course_valid = False
                     break
                 
                 component_data = scraped_course['components'][scraped_comp_type]
                 if section['section_num'] not in component_data['available_sections']:
-                    print(f"❌ ERROR: For '{course_code}', {scraped_comp_type} section '{section['section_num']}' is not available.")
-                    print(f"   Available sections are: {component_data['available_sections']}")
-                    is_valid = False
+                    msg = f"'{course_code}': Section '{section['section_num']}' ({scraped_comp_type}) is full or not available."
+                    print(f"❌ {msg}")
+                    validation_errors.append(msg)
+                    is_course_valid = False
                     break
                 
-                course_obj['components'].append({
+                temp_components.append({
                     "component_id": component_data['component_id'],
-                    "section_id": section['section_num']
+                    "section_id": section['section_num'],
+                    "type": scraped_comp_type
                 })
             
-            if is_valid:
+            if is_course_valid:
+                course_obj['components'] = temp_components
                 final_course_list.append(course_obj)
                 print(f"✅ '{course_code}' successfully validated.")
-        print(final_course_list)
-        return final_course_list
 
+        # Return both lists
+        return {
+            "valid_courses": final_course_list,
+            "errors": validation_errors
+        }
+
+    
     def close(self):
         """Closes the browser and stops the Playwright instance."""
         print("\n--- Closing Browser ---")

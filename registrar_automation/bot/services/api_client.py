@@ -33,24 +33,27 @@ class BackendAPI:
                 return False, "Could not connect to backend service."
 
     @staticmethod
-    async def validate_schedule(username, password, schedule_text):
+    async def validate_schedule(chat_id, schedule_text, auth_data):
         """
         Hits /schedule/validate to start the scraping task.
         Returns task_id.
         """
         url = f"{API_BASE_URL}/schedule/validate"
         payload = {
-            "username": username, 
-            "password": password, 
+            "username": auth_data['username'], 
+            "password": auth_data['password'], 
+            "mode": auth_data.get('mode', 'real'), # Default to real if missing
             "schedule_text": schedule_text
         }
         
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as resp:
                 if resp.status != 200:
-                    return None
-                data = await resp.json()
-                return data.get("task_id")
+                    text = await resp.text()
+                    raise Exception(f"Backend returned {resp.status}: {text}")
+                
+                return await resp.json()       
+
 
     @staticmethod
     async def get_schedule_status(task_id):

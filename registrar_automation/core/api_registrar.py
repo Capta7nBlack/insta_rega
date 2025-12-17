@@ -20,6 +20,7 @@ class RegistrarAPI:
         self.REG_PAGE_URL = f"{self.BASE_URL}/my-registrar/course-registration"
         self.API_URL = f"{self.REG_PAGE_URL}/json"
         self.GRADES_PAGE_URL = f"{self.BASE_URL}/my-registrar/check-grades"
+        self.MAIN_PAGE_URL = f"{self.BASE_URL}/my-registrar"
 
 
         self.session = requests.Session()
@@ -30,6 +31,38 @@ class RegistrarAPI:
             self.session.cookies.update(session_cookies)
 
     # --- Public Methods ---
+    def validate_login(self, username, password):
+        """
+        NEW METHOD: Validates credentials by attempting to log in. 
+        It returns True if login is successful (session established), 
+        but DOES NOT attempt to fetch the CSRF token.
+        This allows validation to pass even if registration is closed.
+        """
+        print(f"--- Validating Credentials Only (User: {username}) ---")
+        form_build_id = self.__get_login_form_build_id()
+        if not form_build_id:
+            return False
+
+        login_payload = {
+            "name": username, "pass": password, "form_build_id": form_build_id,
+            "form_id": "user_login", "op": "Log in"
+        }
+        
+        try:
+            login_req = self.session.post(self.LOGIN_URL, data=login_payload, verify=False)
+            login_req.raise_for_status()
+            
+            # If the response contains a logout link, we are logged in.
+            if "user/logout" in login_req.text:
+                print("✅ Credentials valid (Login successful).")
+                return True
+            else:
+                print("❌ Login failed (Invalid credentials).")
+                return False
+        except Exception as e:
+            print(f"❌ Validation error: {e}")
+            return False
+
 
     def login(self, username, password):
         """
@@ -65,6 +98,14 @@ class RegistrarAPI:
         except requests.exceptions.RequestException as e:
             print(f"❌ An error occurred during login request: {e}")
             return None, None
+
+
+    def fetch_csrf_token(self):
+        """
+        Public wrapper to explicitly fetch the CSRF token.
+        Useful for run_registration task.
+        """
+        return self.__get_csrf_token_from_page()
 
 
     def get_student_id(self):
@@ -196,7 +237,7 @@ class RegistrarAPI:
         """Private method to scrape the CSRF token from the main registration page."""
         print("\n--- Fetching CSRF Token for Registration ---")
         try:
-            req = self.session.get(self.REG_PAGE_URL, verify=False)
+            req = self.session.get(self.MAIN_PAGE_URL, verify=False)
             req.raise_for_status()
             soup = BeautifulSoup(req.text, 'html.parser')
             tag = soup.find('meta', {'name': 'csrf-token'})

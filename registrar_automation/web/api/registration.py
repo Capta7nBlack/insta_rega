@@ -296,8 +296,6 @@ async def get_registration_result(job_id: str, chat_id: int):
     if not task_result.ready():
         return {"status": "pending", "message": "Registration is in progress."}
 
-    # Когда задание будет готово, мы получим результат,
-    # удалим его из job_index и вернем отчет.
     final_report = None
     status = "unknown"
     
@@ -310,7 +308,5 @@ async def get_registration_result(job_id: str, chat_id: int):
         status = "failed"
         logger.error(f"Job {job_id} failed. Traceback: {task_result.traceback}")
     
-    # Очистка: удаляем завершенное задание из индекса
-    redis_client.hdel(job_index_key, job_id)
     
     return {"status": status, "report": final_report}

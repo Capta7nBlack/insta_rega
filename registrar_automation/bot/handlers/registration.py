@@ -6,7 +6,12 @@ from aiogram.filters import Command
 
 from bot.states import RegistrationFlow
 from bot.keyboards.reply import cancel_only, main_menu
-from bot.keyboards.builders import create_date_calendar, create_time_picker, create_test_options_keyboard
+from bot.keyboards.builders import (
+        create_date_calendar,
+        create_time_picker,
+        create_test_options_keyboard,
+        create_confirmation_keyboard
+        )
 from bot.services.api_client import BackendAPI
 
 router = Router()
@@ -65,57 +70,82 @@ async def validate_credentials(message: types.Message, state: FSMContext):
 # --- Step 3: Schedule Upload & Processing ---
 @router.message(RegistrationFlow.waiting_schedule, F.document)
 async def process_schedule(message: types.Message, state: FSMContext):
-    file = await message.bot.get_file(message.document.file_id)
-    content = await message.bot.download_file(file.file_path)
-    schedule_text = content.read().decode('utf-8')
+    document = message.document
     
-    data = await state.get_data()
-    
-    msg = await message.answer("⏳ **Analyzing Schedule...**\nThis uses the Test Server to safely validate your schedule file.")
-    
-    # Start Scraper Task
-    task_id = await BackendAPI.validate_schedule(
-        data['username'], 
-        data['password'], 
-        schedule_text
-    )
-    
-    if not task_id:
-        await msg.edit_text("❌ Failed to start validation task.")
+    if not document.file_name.endswith('.txt'):
+        await message.answer("❌ Please upload a valid **.txt** file.")
         return
 
-    # Poll for results
-    for _ in range(30): # Timeout after 60 seconds
+    # Download file
+    file_id = document.file_id
+    file = await message.bot.get_file(file_id)
+    file_path = file.file_path
+    file_content = await message.bot.download_file(file_path)
+    content_text = file_content.read().decode('utf-8')
+
+    # Send to Backend
+    user_data = await state.get_data()
+    try:
+        response = await BackendAPI.validate_schedule(
+            chat_id=message.chat.id, 
+            schedule_text=content_text,
+            auth_data=user_data
+        )
+        task_id = response.get('task_id')
+    except Exception as e:
+        await message.answer(f"❌ API Error: {e}")
+        return
+
+    # --- POLLING LOOP ---
+    status_msg = await message.answer("⏳ **Validating schedule...** Please wait.")
+    
+    for _ in range(30): # Wait up to 60 seconds
         await asyncio.sleep(2)
-        status = await BackendAPI.get_schedule_status(task_id)
-        
-        if status['status'] == 'success':
-            await state.update_data(validated_courses=status['result'])
-            await msg.edit_text("✅ **Schedule Verified!** Course IDs scraped.")
-            
-            if data.get('mode') == 'test':
-                keyboard = create_test_options_keyboard()
-                text = "📅 **Select Test Date** or **Run Immediately**:"
-            else:
-                keyboard = create_date_calendar()
-                text = "📅 **Select Registration Date:**"
+        try:
+            status = await BackendAPI.get_schedule_status(task_id)
+        except Exception:
+            continue
 
-            # Show Date Picker
-            await message.answer(
-                "📅 **Select Registration Date:**", 
-                reply_markup=keyboard,
-                parse_mode="Markdown"
+        if status.get('status') == 'success':
+            data = status.get('result', {})
+            valid_courses = data.get('valid_courses', [])
+            errors = data.get('errors', [])
+            
+            # 1. Build Summary
+            summary = "📋 **Schedule Analysis Report**\n\n"
+            
+            if valid_courses:
+                summary += "✅ **Found Courses:**\n"
+                for c in valid_courses:
+                    # c['components'] is a list of dicts: [{'component_id':..., 'section_id':...}]
+                    comps = ", ".join([f"{comp.get('type', '?')} {comp['section_id']}" for comp in c['components']])
+                    summary += f"• **{c['name']}**: [{comps}]\n"
+            
+            if errors:
+                summary += "\n⚠️ **Issues (Will be skipped):**\n"
+                for err in errors:
+                    summary += f"• {err}\n"
+            
+            # 2. Check if anything is valid
+            if not valid_courses:
+                await status_msg.edit_text(summary + "\n❌ **No valid courses found.** Please fix your file and upload again.", reply_markup=None)
+                return
+
+            # 3. Save state and Show Confirmation
+            await state.update_data(validated_courses=valid_courses)
+            
+            await status_msg.edit_text(
+                summary, 
+                parse_mode="Markdown", 
+                reply_markup=create_confirmation_keyboard() # <--- Using the builder
             )
-
-
-            await state.set_state(RegistrationFlow.selecting_date)
             return
-            
-        elif status['status'] == 'failed':
-            await msg.edit_text(f"❌ Error: {status.get('error')}")
+
+        elif status.get('status') == 'failed':
+            await status_msg.edit_text(f"❌ Validation failed: {status.get('error')}")
             return
-            
-    await msg.edit_text("❌ Validation timed out. Please try again!")
+
+    await status_msg.edit_text("❌ Validation timed out.")
 
 
 @router.callback_query(F.data == "test_immediate", RegistrationFlow.selecting_date)
@@ -141,10 +171,9 @@ async def run_test_immediate(callback: types.CallbackQuery, state: FSMContext):
             chat_id=callback.message.chat.id,
             text=(
                 f"✅ **Test Job Started!**\n\n"
-                f"🆔 Job ID: `{res['job_id']}`\n"
                 f"🎯 Mode: **TEST**\n"
                 f"🕒 Trigger Time: `{res['target_time']}` (Approx +60s)\n\n"
-                "I will verify login in ~48 seconds."
+                "I will login in ~48 seconds."
             ),
             reply_markup=main_menu(),
             parse_mode="Markdown"
@@ -199,10 +228,9 @@ async def time_selected(callback: types.CallbackQuery, state: FSMContext):
             chat_id=callback.message.chat.id,
             text=(
                 f"✅ **Job Created Successfully!**\n\n"
-                f"🆔 Job ID: `{res['job_id']}`\n"
                 f"🎯 Mode: **{res['mode'].upper()}**\n"
                 f"🕒 Trigger Time: `{res['target_time']}`\n\n"
-                "I will verify login 20 seconds before this time."
+                "I will login 20 seconds before registration time."
             ),
             reply_markup=main_menu(),
             parse_mode="Markdown"
@@ -214,23 +242,78 @@ async def time_selected(callback: types.CallbackQuery, state: FSMContext):
         
     await callback.answer()
 
-# --- Step 6: Job Management Handlers ---
+
+@router.callback_query(F.data == "confirm_schedule", RegistrationFlow.waiting_schedule)
+async def confirm_schedule_cb(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    
+    if data.get('mode') == 'test':
+        keyboard = create_test_options_keyboard()
+        text = "📅 **Select Test Option:**"
+    else:
+        keyboard = create_date_calendar()
+        text = "📅 **Select Registration Date:**"
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    await state.set_state(RegistrationFlow.selecting_date)
+    await callback.answer()
+
+@router.callback_query(F.data == "cancel_flow")
+async def cancel_flow_cb(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("❌ Registration cancelled.", reply_markup=None)
+    await callback.message.answer("Main Menu:", reply_markup=main_menu)
+    await callback.answer()
+
+
 @router.message(F.text == "📋 My Registrations")
 async def list_jobs(message: types.Message):
     jobs = await BackendAPI.get_active_jobs(message.chat.id)
     if not jobs:
-        await message.answer("You have no active registration jobs.")
+        await message.answer("You have no registration jobs (active or completed).")
         return
-        
-    text = "📋 **Your Active Registrations:**\n\n"
+
+    pending_jobs = []
+    completed_jobs = []
+
+    # Separate jobs by status
     for job in jobs:
-        text += (
-            f"🆔 `{job['job_id']}`\n"
-            f"🕒 {job['target_time']} ({job['mode']})\n"
-            f"📚 Courses: {', '.join(job['courses'])}\n"
-            "-------------------\n"
-        )
+        status = job.get('status', 'scheduled')
+        if status == 'scheduled':
+            pending_jobs.append(job)
+        else:
+            completed_jobs.append(job)
+
+    text = "📋 **My Registrations**\n"
+    
+    if pending_jobs:
+        text += "\n⏳ **Pending / Scheduled:**\n"
+        for job in pending_jobs:
+            username = job.get('username', 'Unknown')
+            text += (
+                f"👤 User: `{username}`\n"
+                f"🆔 `{job['job_id']}`\n"
+                f"🕒 {job['target_time']} ({job['mode']})\n"
+                f"📚 Courses: {', '.join(job['courses'])}\n"
+                "-------------------\n"
+            )
+    
+    if completed_jobs:
+        text += "\n✅ **Completed:**\n"
+        for job in completed_jobs:
+            username = job.get('username', 'Unknown')
+            icon = "❌" if job.get('status') == 'failed' else "🏁"
+            text += (
+                f"👤 User: `{username}`\n"
+                f"{icon} `{job['job_id']}`\n"
+                f"🕒 {job['target_time']} ({job['mode']})\n"
+                f"📚 Courses: {', '.join(job['courses'])}\n"
+                "-------------------\n"
+            )
     await message.answer(text, parse_mode="Markdown")
+
+
+# --- Step 6: Job Management Handlers ---
 
 @router.message(F.text == "❌ Cancel Registration")
 async def cancel_job_prompt(message: types.Message):
@@ -251,4 +334,9 @@ async def cancel_registration_action(message: types.Message):
         else:
             await message.answer("❌ Job not found or failed to cancel.")
     except Exception:
-        await message.answer("Usage: `/cancel_registration <job_id>`", parse_mode="Markdown")
+            await message.answer("Usage: `/cancel_registration <job_id>`", parse_mode="Markdown")
+
+
+
+
+

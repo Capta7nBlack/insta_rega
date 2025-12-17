@@ -21,6 +21,7 @@ services:
       - REDIS_HOST=127.0.0.1
       - APP_ID=registrar-bot
       - TZ=Asia/Almaty  # <--- ADD THIS
+      - BOT_TOKEN=${BOT_TOKEN}
 
   # 3. The Celery Worker (Executes tasks)
   worker:
